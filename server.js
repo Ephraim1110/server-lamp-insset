@@ -18,11 +18,6 @@ async function webOfThingsHandler(WoT) {
   const exposingThing = await WoT.produce(thingDescription);
   exposingThings["lamp"] = exposingThing;
 
-  exposingThing.setPropertyReadHandler("powerState", async () => {
-    console.log("Reading powerState:", lampState.powerState);
-    return lampState.powerState;
-  });
-
   exposingThing.setPropertyWriteHandler("powerState", async (powerStateInteractionOutput) => {
     try {
       const powerState = await powerStateInteractionOutput.value();
