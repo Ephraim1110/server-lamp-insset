@@ -1,55 +1,74 @@
 const fs = require("fs/promises");
-const nodeWotBindingHttp = require("@node-wot/binding-http");
-const nodeWotCore = require("@node-wot/core");
+const { Servient } = require("@node-wot/core");
+const { HttpServer } = require("@node-wot/binding-http");
 
-const servient = new nodeWotCore.Servient();
-const httpServer = new nodeWotBindingHttp.HttpServer({ port: 5555 });
+const PORT = 5555;
+
+// ✅ écoute réseau + CORS (utile pour front sur autre port)
+const servient = new Servient();
+const httpServer = new HttpServer({
+  port: PORT,
+  // selon versions, "address" peut être supporté. Si ça plante, enlève "address".
+  address: "0.0.0.0",
+  cors: { origin: "*" }
+});
 servient.addServer(httpServer);
 
-const exposingThings = {};
-let lampState = {
-  powerState: "off"
-};
+let lampState = { powerState: "off" };
+
+function normalizePowerState(v) {
+  const s = String(v ?? "").trim().toLowerCase().replaceAll('"', "");
+  if (s !== "on" && s !== "off") throw new Error("powerState must be 'on' or 'off'");
+  return s;
+}
 
 async function webOfThingsHandler(WoT) {
-  const thingDescription = JSON.parse(await fs.readFile("./lamp.td.json"));
-  thingDescription.base = "http://localhost:5555";
+  const td = JSON.parse(await fs.readFile("./lamp.td.json", "utf-8"));
+  td.base = `http://localhost:${PORT}`; // sur Raspberry: remplace localhost par l'IP si besoin
 
-  const exposingThing = await WoT.produce(thingDescription);
-  exposingThings["lamp"] = exposingThing;
+  const thing = await WoT.produce(td);
 
-  exposingThing.setPropertyWriteHandler("powerState", async (powerStateInteractionOutput) => {
-    try {
-      const powerState = await powerStateInteractionOutput.value();
-      lampState.powerState = powerState;
-      console.log("Writing powerState:", powerState);
-      exposingThing.emitPropertyChange("powerState");
-    } catch (err) {
-      console.error("Error writing powerState:", err?.message || err);
-      throw err;
-    }
+  // ✅ READ handler (lecture initiale fiable)
+  thing.setPropertyReadHandler("powerState", async () => {
+    return lampState.powerState;
   });
 
-  exposingThing.setActionHandler("setPowerState", async (input) => {
-    try {
-      const powerState = await input.value();
-      lampState.powerState = powerState.powerState;
-      console.log("Action setPowerState called with:", powerState.powerState);
-      exposingThing.emitPropertyChange("powerState");
-      return { success: true, powerState: lampState.powerState };
-    } catch (err) {
-      console.error("Error in setPowerState action:", err?.message || err);
-      throw err;
-    }
+  // ✅ WRITE handler
+  thing.setPropertyWriteHandler("powerState", async (io) => {
+    const next = normalizePowerState(await io.value());
+    lampState.powerState = next;
+    console.log("Writing powerState:", next);
+
+    // ✅ important: envoyer la valeur
+    thing.emitPropertyChange("powerState", lampState.powerState);
   });
 
-  exposingThing.expose();
-  console.log("Lamp exposed successfully!");
+  // ✅ ACTION handler
+  thing.setActionHandler("setPowerState", async (input) => {
+    const body = await input.value(); // { powerState: "on" }
+    const next = normalizePowerState(body?.powerState);
+
+    lampState.powerState = next;
+    console.log("Action setPowerState:", next);
+
+    thing.emitPropertyChange("powerState", lampState.powerState);
+    return { success: true, powerState: lampState.powerState };
+  });
+
+  await thing.expose();
+  console.log(`✅ Lamp exposed on port ${PORT}`);
+  console.log(`➡️ Read:   http://localhost:${PORT}/lamp/properties/powerState`);
+  console.log(`➡️ Observe:http://localhost:${PORT}/lamp/properties/powerState/observe`);
+  console.log(`➡️ Action: http://localhost:${PORT}/lamp/actions/setPowerState`);
 }
 
 async function main() {
-  servient.start().then(webOfThingsHandler);
-  console.log("WoT Server started on port 5555");
+  const WoT = await servient.start();
+  console.log(`🚀 WoT Server started on port ${PORT}`);
+  await webOfThingsHandler(WoT);
 }
 
-main();
+main().catch((e) => {
+  console.error("Fatal WoT error:", e?.message || e);
+  process.exit(1);
+});

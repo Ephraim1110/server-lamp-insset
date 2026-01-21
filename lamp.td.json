@@ -1,38 +1,29 @@
 {
-    "@context": "https://www.w3.org/2019/wot/td/v1",
-    "title": "lamp",
-    "securityDefinitions": {
-        "nosec_sc": {
-            "scheme": "nosec"
-        }
-    },
-    "security": "nosec_sc",
-    "properties": {
-        "powerState": {
-            "title": "powerState",
-            "type": "string",
-            "observable": true,
-            "readOnly": false
-        }
-    },
-    "actions": {
-        "setPowerState": {
-            "title": "setPowerState",
-            "input": {
-                "type": "object",
-                "properties": {
-                    "powerState": {
-                        "type": "string",
-                        "enum": [
-                            "on",
-                            "off"
-                        ]
-                    }
-                },
-                "required": [
-                    "powerState"
-                ]
-            }
-        }
+  "@context": "https://www.w3.org/2019/wot/td/v1",
+  "title": "lamp",
+  "securityDefinitions": {
+    "nosec_sc": { "scheme": "nosec" }
+  },
+  "security": "nosec_sc",
+  "properties": {
+    "powerState": {
+      "title": "powerState",
+      "type": "string",
+      "enum": ["on", "off"],
+      "observable": true,
+      "readOnly": false
     }
+  },
+  "actions": {
+    "setPowerState": {
+      "title": "setPowerState",
+      "input": {
+        "type": "object",
+        "properties": {
+          "powerState": { "type": "string", "enum": ["on", "off"] }
+        },
+        "required": ["powerState"]
+      }
+    }
+  }
 }
