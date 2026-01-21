@@ -8,7 +8,6 @@ const PORT = 5555;
 const servient = new Servient();
 const httpServer = new HttpServer({
   port: PORT,
-  // selon versions, "address" peut être supporté. Si ça plante, enlève "address".
   address: "0.0.0.0",
   cors: { origin: "*" }
 });
@@ -24,11 +23,11 @@ function normalizePowerState(v) {
 
 async function webOfThingsHandler(WoT) {
   const td = JSON.parse(await fs.readFile("./lamp.td.json", "utf-8"));
-  td.base = `http://localhost:${PORT}`; // sur Raspberry: remplace localhost par l'IP si besoin
+  td.base = `http://localhost:${PORT}`; 
 
   const thing = await WoT.produce(td);
 
-  // ✅ READ handler (lecture initiale fiable)
+  
   thing.setPropertyReadHandler("powerState", async () => {
     return lampState.powerState;
   });
