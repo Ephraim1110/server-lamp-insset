@@ -1,8 +1,24 @@
 const fs = require("fs/promises");
 const { Servient } = require("@node-wot/core");
 const { HttpServer } = require("@node-wot/binding-http");
+const Database = require("better-sqlite3");
 
 const PORT = 5555;
+
+// ✅ Initialiser la base de données SQLite
+const db = new Database("lamp-history.db");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS state_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    powerState TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+function saveStateToDb(powerState) {
+  const stmt = db.prepare("INSERT INTO state_history (powerState) VALUES (?)");
+  stmt.run(powerState);
+}
 
 // ✅ écoute réseau + CORS (utile pour front sur autre port)
 const servient = new Servient();
@@ -38,6 +54,9 @@ async function webOfThingsHandler(WoT) {
     lampState.powerState = next;
     console.log("Writing powerState:", next);
 
+    // ✅ Enregistrer dans la DB
+    saveStateToDb(next);
+
     // ✅ important: envoyer la valeur
     thing.emitPropertyChange("powerState", lampState.powerState);
   });
@@ -50,6 +69,9 @@ async function webOfThingsHandler(WoT) {
     lampState.powerState = next;
     console.log("Action setPowerState:", next);
 
+    // ✅ Enregistrer dans la DB
+    saveStateToDb(next);
+
     thing.emitPropertyChange("powerState", lampState.powerState);
     return { success: true, powerState: lampState.powerState };
   });
@@ -59,6 +81,15 @@ async function webOfThingsHandler(WoT) {
   console.log(`➡️ Read:   http://localhost:${PORT}/lamp/properties/powerState`);
   console.log(`➡️ Observe:http://localhost:${PORT}/lamp/properties/powerState/observe`);
   console.log(`➡️ Action: http://localhost:${PORT}/lamp/actions/setPowerState`);
+
+  // ✅ Afficher l'historique au démarrage
+  const history = db.prepare("SELECT * FROM state_history ORDER BY timestamp DESC LIMIT 5").all();
+  if (history.length > 0) {
+    console.log("\n📜 Derniers changements d'état:");
+    history.forEach((row) => {
+      console.log(`   ${row.timestamp} -> ${row.powerState}`);
+    });
+  }
 }
 
 async function main() {
@@ -69,5 +100,13 @@ async function main() {
 
 main().catch((e) => {
   console.error("Fatal WoT error:", e?.message || e);
+  db.close();
   process.exit(1);
+});
+
+// ✅ Fermer la DB proprement à l'arrêt
+process.on("SIGINT", () => {
+  console.log("\n👋 Arrêt du serveur...");
+  db.close();
+  process.exit(0);
 });
