@@ -13,13 +13,22 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS state_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     powerState TEXT NOT NULL,
+    consumption REAL DEFAULT 0,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
 
-function saveStateToDb(powerState) {
-  const stmt = db.prepare("INSERT INTO state_history (powerState) VALUES (?)");
-  stmt.run(powerState);
+// Migration: ajouter la colonne consumption si elle n'existe pas
+try {
+  db.exec("ALTER TABLE state_history ADD COLUMN consumption REAL DEFAULT 0");
+  console.log("✅ Colonne 'consumption' ajoutée");
+} catch (e) {
+  // La colonne existe déjà, c'est normal
+}
+
+function saveStateToDb(powerState, consumption = 0) {
+  const stmt = db.prepare("INSERT INTO state_history (powerState, consumption) VALUES (?, ?)");
+  stmt.run(powerState, consumption);
 }
 
 const servient = new Servient();
@@ -57,13 +66,26 @@ const historyServer = http.createServer(async (req, res) => {
         "SELECT COUNT(*) as count FROM state_history WHERE powerState = 'off'"
       ).get().count;
       
+      // Consommation groupée par heure
+      const consumptionByHour = db.prepare(`
+        SELECT 
+          strftime('%Y-%m-%d %H:00', timestamp) as hour,
+          SUM(consumption) as totalConsumption
+        FROM state_history
+        WHERE consumption > 0
+        GROUP BY hour
+        ORDER BY hour DESC
+        LIMIT 24
+      `).all();
+      
       const html = await ejs.renderFile("./views/dashboard.ejs", {
         history: history,
         onCount: onCount,
-        offCount: offCount
+        offCount: offCount,
+        consumptionByHour: consumptionByHour
       });
       
-      res.writeHead(500);
+      res.writeHead(200);
       res.end(html);
     } catch (err) {
       res.writeHead(500);
@@ -107,8 +129,8 @@ async function webOfThingsHandler(WoT) {
     lampState.powerState = next;
     console.log("Writing powerState:", next);
 
-    // ✅ Enregistrer dans la DB
-    saveStateToDb(next);
+    // ✅ Enregistrer dans la DB (avec consommation par défaut)
+    saveStateToDb(next, 0);
 
     // ✅ important: envoyer la valeur
     thing.emitPropertyChange("powerState", lampState.powerState);
@@ -116,17 +138,18 @@ async function webOfThingsHandler(WoT) {
 
   // ✅ ACTION handler
   thing.setActionHandler("setPowerState", async (input) => {
-    const body = await input.value(); // { powerState: "on" }
+    const body = await input.value(); // { powerState: "on", consumption: 60 }
     const next = normalizePowerState(body?.powerState);
+    const consumption = Number(body?.consumption) || 0;
 
     lampState.powerState = next;
-    console.log("Action setPowerState:", next);
+    console.log("Action setPowerState:", next, `(${consumption} W/h)`);
 
     // ✅ Enregistrer dans la DB
-    saveStateToDb(next);
+    saveStateToDb(next, consumption);
 
     thing.emitPropertyChange("powerState", lampState.powerState);
-    return { success: true, powerState: lampState.powerState };
+    return { success: true, powerState: lampState.powerState, consumption: consumption };
   });
 
   await thing.expose();

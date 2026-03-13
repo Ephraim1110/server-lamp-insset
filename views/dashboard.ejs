@@ -233,22 +233,31 @@
                 </div>
             </div>
             <div class="stat-card">
-                <span class="stat-label">État "ON"</span>
-                <div class="stat-value"><%= onCount %></div>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">État "OFF"</span>
-                <div class="stat-value"><%= offCount %></div>
+                <span class="stat-label">Consommation Totale</span>
+                <div class="stat-value">
+                    <% 
+                        let totalConsumption = 0;
+                        consumptionByHour.forEach(row => {
+                            totalConsumption += row.totalConsumption;
+                        });
+                    %>
+                    <%= totalConsumption.toFixed(2) %> W/h
+                </div>
             </div>
         </div>
         
         <!-- Histogramme des changements d'état -->
         <div class="chart-container">
             <div class="table-header">
-                <h2>📈 Graphique des États</h2>
+                <h2>⚡ Consommation Électrique par Heure</h2>
             </div>
-            <% if (history.length > 0) { %>
-                <canvas id="stateChart" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); max-height: 400px;"></canvas>
+            <% if (consumptionByHour.length > 0) { %>
+                <canvas id="consumptionChart" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); max-height: 400px;"></canvas>
+            <% } else { %>
+                <div class="empty-state">
+                    <div class="empty-state-icon">⚡</div>
+                    <p>Aucune donnée de consommation disponible</p>
+                </div>
             <% } %>
         </div>
         
@@ -298,34 +307,28 @@
     </div>
     
     <script>
-        // Préparer les données pour le graphique
-        <% if (history.length > 0) { %>
-            const chartData = <%- JSON.stringify(history.map(h => ({ 
-                timestamp: h.timestamp, 
-                powerState: h.powerState === 'on' ? 1 : 0,
-                state: h.powerState
+        // Préparer les données pour le graphique de consommation
+        <% if (consumptionByHour.length > 0) { %>
+            const consumptionData = <%- JSON.stringify(consumptionByHour.reverse().map(h => ({
+                hour: h.hour,
+                consumption: h.totalConsumption
             }))) %>;
             
-            // Créer le graphique
-            const ctx = document.getElementById('stateChart');
+            // Créer le graphique de consommation
+            const ctx = document.getElementById('consumptionChart');
             if (ctx) {
                 new Chart(ctx, {
-                    type: 'line',
+                    type: 'bar',
                     data: {
-                        labels: chartData.map(d => d.timestamp),
+                        labels: consumptionData.map(d => d.hour),
                         datasets: [{
-                            label: 'État de la Lampe (1=ON, 0=OFF)',
-                            data: chartData.map(d => d.powerState),
+                            label: 'Consommation Électrique (W/h)',
+                            data: consumptionData.map(d => Math.round(d.consumption * 100) / 100),
+                            backgroundColor: 'rgba(102, 126, 234, 0.7)',
                             borderColor: '#667eea',
-                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            pointRadius: 5,
-                            pointHoverRadius: 7,
-                            pointBackgroundColor: chartData.map(d => d.powerState === 1 ? '#28a745' : '#dc3545'),
                             borderWidth: 2,
-                            pointBorderColor: 'white',
-                            pointBorderWidth: 2
+                            borderRadius: 6,
+                            hoverBackgroundColor: 'rgba(102, 126, 234, 0.9)'
                         }]
                     },
                     options: {
@@ -335,23 +338,25 @@
                             legend: {
                                 display: true,
                                 labels: {
-                                    font: { size: 12 },
-                                    usePointStyle: true
+                                    font: { size: 12 }
                                 }
                             }
                         },
                         scales: {
                             y: {
                                 beginAtZero: true,
-                                max: 1,
                                 ticks: {
                                     callback: function(value) {
-                                        return value === 1 ? 'ON' : 'OFF';
+                                        return value + ' W/h';
                                     },
                                     font: { size: 12 }
                                 },
                                 grid: {
                                     color: 'rgba(0, 0, 0, 0.1)'
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Watts par Heure'
                                 }
                             },
                             x: {
