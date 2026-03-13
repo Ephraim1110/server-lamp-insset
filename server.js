@@ -63,7 +63,7 @@ const historyServer = http.createServer(async (req, res) => {
         offCount: offCount
       });
       
-      res.writeHead(200);
+      res.writeHead(500);
       res.end(html);
     } catch (err) {
       res.writeHead(500);
