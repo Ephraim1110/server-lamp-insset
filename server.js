@@ -2,10 +2,12 @@ const fs = require("fs/promises");
 const { Servient } = require("@node-wot/core");
 const { HttpServer } = require("@node-wot/binding-http");
 const Database = require("better-sqlite3");
+const http = require("http");
+const ejs = require("ejs");
 
 const PORT = 5555;
 
-// ✅ Initialiser la base de données SQLite
+
 const db = new Database("lamp-history.db");
 db.exec(`
   CREATE TABLE IF NOT EXISTS state_history (
@@ -20,7 +22,6 @@ function saveStateToDb(powerState) {
   stmt.run(powerState);
 }
 
-// ✅ écoute réseau + CORS (utile pour front sur autre port)
 const servient = new Servient();
 const httpServer = new HttpServer({
   port: PORT,
@@ -36,6 +37,58 @@ function normalizePowerState(v) {
   if (s !== "on" && s !== "off") throw new Error("powerState must be 'on' or 'off'");
   return s;
 }
+
+const historyServer = http.createServer(async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  // Afficher le dashboard EJS sur la page d'accueil
+  if (req.url === "/" || req.url === "") {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    try {
+      const history = db.prepare(
+        "SELECT * FROM state_history ORDER BY timestamp DESC"
+      ).all();
+      
+      const onCount = db.prepare(
+        "SELECT COUNT(*) as count FROM state_history WHERE powerState = 'on'"
+      ).get().count;
+      
+      const offCount = db.prepare(
+        "SELECT COUNT(*) as count FROM state_history WHERE powerState = 'off'"
+      ).get().count;
+      
+      const html = await ejs.renderFile("./views/dashboard.ejs", {
+        history: history,
+        onCount: onCount,
+        offCount: offCount
+      });
+      
+      res.writeHead(200);
+      res.end(html);
+    } catch (err) {
+      res.writeHead(500);
+      res.end(`<h1>Erreur 500</h1><p>${err.message}</p>`);
+    }
+  } 
+  // API JSON pour récupérer l'historique
+  else if (req.url === "/history" && req.method === "GET") {
+    res.setHeader("Content-Type", "application/json");
+    const rows = db.prepare(
+      "SELECT * FROM state_history ORDER BY timestamp DESC LIMIT 50"
+    ).all();
+    res.writeHead(200);
+    res.end(JSON.stringify(rows));
+  } 
+  else {
+    res.setHeader("Content-Type", "application/json");
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: "Not found" }));
+  }
+});
+
+historyServer.listen(5556, () => {
+  console.log("📊 History API on http://localhost:5556/history");
+});
 
 async function webOfThingsHandler(WoT) {
   const td = JSON.parse(await fs.readFile("./lamp.td.json", "utf-8"));
